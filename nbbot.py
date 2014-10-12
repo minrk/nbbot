@@ -130,8 +130,10 @@ def run_notebook(nb, kernel, session):
     """Run all the cells of a notebook"""
     cells = nb.worksheets[0].cells
     ncells = sum(cell['cell_type'] == 'code' for cell in cells)
-    for i,cell in enumerate(cells):
+    i = 0
+    for cell in cells:
         if cell['cell_type'] == 'code':
+            i += 1
             gen_log.info("Executing cell %i/%i", i, ncells)
             yield execute(cell, kernel, session)
 
