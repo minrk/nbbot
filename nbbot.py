@@ -73,7 +73,7 @@ class NBAPI(object):
         )
     
     @gen.coroutine
-    def new_kernel(self, session_id):
+    def new_kernel(self, session_id, legacy=False):
         """Start a new kernel, and connect a websocket for each channel
         
         Returns Kernel model dict, adding websocket object at each channel name.
@@ -85,10 +85,13 @@ class NBAPI(object):
         )
         kernel_id = kernel['id']
         for channel in ('shell', 'iopub', 'stdin'):
-            kernel[channel] = yield websocket_connect(
-                url_path_join('ws' + self.url[4:], 'api', 'kernels', kernel_id, channel)
-                + '?session_id=%s' % session_id
-            )
+            url = url_path_join('ws' + self.url[4:], 'api', 'kernels', kernel_id, channel)
+            if not legacy:
+                url += '?session_id=%s' % session_id
+            kernel[channel] = yield websocket_connect(url)
+            if legacy:
+                # set session ID with on-first-message:
+                kernel[channel].write_message('%s:' % session_id)
         raise gen.Return(kernel)
 
     def kill_kernel(self, kernel_id):
@@ -139,14 +142,14 @@ def run_notebook(nb, kernel, session):
 
 
 @gen.coroutine
-def open_run_save(api, path):
+def open_run_save(api, path, legacy=False):
     """open a notebook, run it, and save.
     
     Only the original notebook is saved, the output is not recorded.
     """
     nb = api.get_notebook(path)
     session = Session()
-    kernel = yield api.new_kernel(session.session)
+    kernel = yield api.new_kernel(session.session, legacy=legacy)
     try:
         yield run_notebook(nb, kernel, session)
     finally:
@@ -159,6 +162,9 @@ if __name__ == '__main__':
     options.define("url", default="http://127.0.0.1:8888",
         help="The base URL of the notebook server to test"
     )
+    options.define("legacy", type=bool, default=False,
+        help="Use legacy (2.x) websocket handshake"
+    )
     args = options.parse_command_line()
     paths = args or ['Untitled0.ipynb']
     
@@ -167,4 +173,4 @@ if __name__ == '__main__':
     
     for path in paths:
         gen_log.info("Running %s/notebooks/%s", api.url, path)
-        loop.run_sync(lambda : open_run_save(api, path))
+        loop.run_sync(lambda : open_run_save(api, path, options.legacy))
