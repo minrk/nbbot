@@ -162,9 +162,9 @@ if __name__ == '__main__':
     args = options.parse_command_line()
     paths = args or ['Untitled0.ipynb']
     
-    api = NBAPI(url=options.url)
+    api = NBAPI(url=options.url.rstrip('/'))
     loop = IOLoop.current()
     
     for path in paths:
-        gen_log.info("Running %s/notebooks/%s", options.url, path)
+        gen_log.info("Running %s/notebooks/%s", api.url, path)
         loop.run_sync(lambda : open_run_save(api, path))
