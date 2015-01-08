@@ -165,7 +165,7 @@ def open_run_save(api, path, legacy=False):
 
 if __name__ == '__main__':
     enable_pretty_logging()
-    options.define("url", default="http://127.0.0.1:8888",
+    options.define("url", default="http://localhost:8888",
         help="The base URL of the notebook server to test"
     )
     options.define("legacy", type=bool, default=False,
