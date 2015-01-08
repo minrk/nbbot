@@ -45,6 +45,8 @@ class NBAPI(object):
         gen_log.debug("%s %s", kwargs['method'], url)
         r = requests.request(**kwargs)
         r.raise_for_status()
+        if r.history and '/login' in r.url:
+            raise requests.HTTPError("Login failed", response=r)
         if r.text != '':
             return r.json()
     
