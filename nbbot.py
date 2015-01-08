@@ -20,24 +20,27 @@ from tornado import gen
 from tornado.log import gen_log, enable_pretty_logging
 from tornado.options import options
 from tornado.ioloop import IOLoop
+from tornado.httpclient import HTTPRequest
 from tornado.websocket import websocket_connect
 
 from IPython.html.utils import url_path_join
 from IPython.kernel.zmq.session import Session
-from IPython.nbformat import current
+from IPython import nbformat
 from IPython.utils.jsonutil import date_default
 
 
 class NBAPI(object):
     """API wrapper for the relevant bits of the IPython REST API"""
     
-    def __init__(self, url='http://127.0.0.1:8888'):
+    def __init__(self, url='http://localhost:8888', cookies=None):
         self.url = url
+        self.cookies = cookies or {}
     
     def api_request(self, *path, **kwargs):
         """Make an API request"""
         url = url_path_join(self.url, 'api', *path)
         kwargs.setdefault('method', 'GET')
+        kwargs.setdefault('cookies', self.cookies)
         kwargs['url'] = url
         gen_log.debug("%s %s", kwargs['method'], url)
         r = requests.request(**kwargs)
@@ -51,7 +54,7 @@ class NBAPI(object):
     def get_notebook(self, path):
         """Get a notebook"""
         model = self.contents(path)
-        return current.to_notebook_json(model['content'])
+        return nbformat.from_dict(model['content'])
     
     def _split_path(self, path):
         if '/' in path:
@@ -84,11 +87,15 @@ class NBAPI(object):
             })
         )
         kernel_id = kernel['id']
+        cookie_headers = {
+            'Cookie': '; '.join(['%s=%s' % (name, value) for name, value in self.cookies.items()])
+        }
         for channel in ('shell', 'iopub', 'stdin'):
             url = url_path_join('ws' + self.url[4:], 'api', 'kernels', kernel_id, channel)
             if not legacy:
                 url += '?session_id=%s' % session_id
-            kernel[channel] = yield websocket_connect(url)
+            req = HTTPRequest(url, headers=cookie_headers)
+            kernel[channel] = yield websocket_connect(req)
             if legacy:
                 # set session ID with on-first-message:
                 kernel[channel].write_message('%s:' % session_id)
@@ -103,7 +110,7 @@ class NBAPI(object):
 def execute(cell, kernel, session):
     """Run a single cell, waiting for its output"""
     msg = session.msg('execute_request', content={
-        'code': cell.input,
+        'code': cell.source,
         'user_expressions': [],
         'silent': False,
         'allow_stdin': False,
@@ -113,7 +120,7 @@ def execute(cell, kernel, session):
     
     shell = kernel['shell']
     iopub = kernel['iopub']
-    gen_log.debug("Executing:\n%s", cell.input)
+    gen_log.debug("Executing:\n%s", cell.source)
     shell.write_message(json.dumps(msg, default=date_default))
     reply = yield shell.read_message()
     reply = json.loads(reply)
@@ -131,10 +138,9 @@ def execute(cell, kernel, session):
 @gen.coroutine
 def run_notebook(nb, kernel, session):
     """Run all the cells of a notebook"""
-    cells = nb.worksheets[0].cells
-    ncells = sum(cell['cell_type'] == 'code' for cell in cells)
+    ncells = sum(cell['cell_type'] == 'code' for cell in nb.cells)
     i = 0
-    for cell in cells:
+    for cell in nb.cells:
         if cell['cell_type'] == 'code':
             i += 1
             gen_log.info("Executing cell %i/%i", i, ncells)
