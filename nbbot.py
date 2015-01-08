@@ -20,6 +20,7 @@ from tornado import gen
 from tornado.log import gen_log, enable_pretty_logging
 from tornado.options import options
 from tornado.ioloop import IOLoop
+from tornado.httpclient import HTTPRequest
 from tornado.websocket import websocket_connect
 
 from IPython.html.utils import url_path_join
@@ -31,7 +32,7 @@ from IPython.utils.jsonutil import date_default
 class NBAPI(object):
     """API wrapper for the relevant bits of the IPython REST API"""
     
-    def __init__(self, url='http://127.0.0.1:8888', cookies=None):
+    def __init__(self, url='http://localhost:8888', cookies=None):
         self.url = url
         self.cookies = cookies or {}
     
@@ -86,11 +87,15 @@ class NBAPI(object):
             })
         )
         kernel_id = kernel['id']
+        cookie_headers = {
+            'Cookie': '; '.join(['%s=%s' % (name, value) for name, value in self.cookies.items()])
+        }
         for channel in ('shell', 'iopub', 'stdin'):
             url = url_path_join('ws' + self.url[4:], 'api', 'kernels', kernel_id, channel)
             if not legacy:
                 url += '?session_id=%s' % session_id
-            kernel[channel] = yield websocket_connect(url)
+            req = HTTPRequest(url, headers=cookie_headers)
+            kernel[channel] = yield websocket_connect(req)
             if legacy:
                 # set session ID with on-first-message:
                 kernel[channel].write_message('%s:' % session_id)
